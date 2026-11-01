@@ -78,15 +78,18 @@ func (c *Client) RealQuery(ctx context.Context, sn string, variables []string) (
 		SN    string      `json:"deviceSN"`
 		Datas []RealPoint `json:"datas"`
 	}
-	body := map[string]any{"sns": []string{sn}, "variables": variables}
+	body := map[string]any{"sns": []string{sn}}
+	if len(variables) > 0 { // omitted means every variable
+		body["variables"] = variables
+	}
 	if err := c.do(ctx, http.MethodPost, "/op/v0/device/real/query", nil, body, &res); err != nil {
 		return nil, err
 	}
 	var out []RealPoint
 	for _, r := range res {
-		if r.SN == sn {
-			out = append(out, r.Datas...)
-		}
+		// Only this serial was requested, so don't insist the echo matches
+		// exactly (case or padding can differ).
+		out = append(out, r.Datas...)
 	}
 	return out, nil
 }

@@ -24,9 +24,11 @@ type API interface {
 const (
 	maxDayRange   = 366
 	maxMonthRange = 36
-	closedTTL     = 24 * time.Hour // a finished day or month no longer changes
-	openTTL       = 5 * time.Minute
-	deviceTTL     = 10 * time.Minute
+
+	maxRealtimeFallback = 40
+	closedTTL           = 24 * time.Hour // a finished day or month no longer changes
+	openTTL             = 5 * time.Minute
+	deviceTTL           = 10 * time.Minute
 )
 
 var london = func() *time.Location {
@@ -214,15 +216,36 @@ func (s *Service) GetRealtime(ctx context.Context, device string) (*RealtimeOut,
 	if err != nil {
 		return nil, err
 	}
-	pts, err := s.api.RealQuery(ctx, sn, realtimeVars)
+	// Ask for everything and pick out what we want: requesting variables by
+	// name returned nothing on a live account, so the names can't be trusted.
+	all, err := s.api.RealQuery(ctx, sn, nil)
 	if err != nil {
 		return nil, err
 	}
 	out := &RealtimeOut{Device: mask(sn), Readings: []ReadingOut{}, Notes: []string{}}
-	if len(pts) == 0 {
+	if len(all) == 0 {
 		out.Status = "no_data"
 		out.Notes = append(out.Notes, "FoxESS returned no live readings. The inverter may be offline; this is missing data, not zero output.")
 		return out, nil
+	}
+	want := map[string]bool{}
+	for _, v := range realtimeVars {
+		want[v] = true
+	}
+	var pts []foxess.RealPoint
+	for _, p := range all {
+		if want[p.Variable] {
+			pts = append(pts, p)
+		}
+	}
+	if len(pts) == 0 {
+		// None of the expected names matched: show what FoxESS did send so the
+		// names can be corrected, rather than hiding live data.
+		pts = all
+		if len(pts) > maxRealtimeFallback {
+			pts = pts[:maxRealtimeFallback]
+		}
+		out.Notes = append(out.Notes, "None of the expected variable names were present, so this shows the first readings FoxESS returned.")
 	}
 	out.Status = "ok"
 	for _, p := range pts {

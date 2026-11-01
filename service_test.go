@@ -27,12 +27,15 @@ const (
 // fakeAPI serves fixture responses shaped like the FoxESS Open API and checks
 // the token and signature on every request. Nothing here talks to the real service.
 type fakeAPI struct {
-	srv       *httptest.Server
-	devices   []string
-	omitVar   map[string]bool // report variables the API leaves out
-	zeroAll   bool            // every report value is 0 (inverter offline)
-	mu        sync.Mutex
-	reportReq []map[string]any
+	srv     *httptest.Server
+	devices []string
+	omitVar map[string]bool // report variables the API leaves out
+	zeroAll bool            // every report value is 0 (inverter offline)
+	// realOnlyUnknown makes live data contain only variables we don't expect.
+	realOnlyUnknown bool
+	realBody        map[string]any
+	mu              sync.Mutex
+	reportReq       []map[string]any
 }
 
 // factor gives each report variable a distinct, predictable value: the value
@@ -93,10 +96,19 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]any{"deviceSN": r.URL.Query().Get("sn"), "capacity": 5.0, "status": 1, "batteryList": []map[string]any{{"batterySN": "TESTBAT0001"}}})
 	case "/op/v0/device/real/query":
 		sns, _ := body["sns"].([]any)
-		reply(w, []map[string]any{{"deviceSN": sns[0], "datas": []map[string]any{
+		f.mu.Lock()
+		f.realBody = body
+		f.mu.Unlock()
+		datas := []map[string]any{
 			{"variable": "pvPower", "unit": "kW", "name": "PV Power", "value": 1.234, "time": "2026-11-02 12:00:00 GMT+0000"},
+			{"variable": "ambientTemperation", "unit": "℃", "name": "Ambient Temperature", "value": 9.5, "time": "2026-11-02 12:00:00 GMT+0000"},
 			{"variable": "SoC", "unit": "%", "name": "SoC", "value": 64, "time": "2026-11-02 12:00:00 GMT+0000"},
-		}}})
+		}
+		if f.realOnlyUnknown {
+			datas = []map[string]any{{"variable": "mysteryVar", "unit": "kW", "name": "Mystery", "value": 7, "time": "2026-11-02 12:00:00 GMT+0000"}}
+		}
+		// The real API echoes the serial in whatever case it likes.
+		reply(w, []map[string]any{{"deviceSN": strings.ToLower(sns[0].(string)), "datas": datas}})
 	case "/op/v0/device/report/query":
 		f.mu.Lock()
 		f.reportReq = append(f.reportReq, body)
@@ -344,13 +356,34 @@ func TestDeviceSelection(t *testing.T) {
 }
 
 func TestGetRealtime(t *testing.T) {
-	s := newFakeAPI(t).service(t, at("2026-11-02T12:00:00Z"))
+	f := newFakeAPI(t)
+	s := f.service(t, at("2026-11-02T12:00:00Z"))
 	out, err := s.GetRealtime(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != "ok" || len(out.Readings) != 2 || out.Readings[0].Variable != "pvPower" || out.Readings[0].Unit != "kW" {
+	// The fake also returns an ambient temperature, which is filtered out.
+	if out.Status != "ok" || len(out.Readings) != 2 || out.Readings[0].Variable != "pvPower" || out.Readings[0].Unit != "kW" || out.Readings[1].Variable != "SoC" {
 		t.Errorf("out = %+v", out)
+	}
+	if _, asked := f.realBody["variables"]; asked {
+		t.Errorf("request named variables %v; it must ask for all of them", f.realBody["variables"])
+	}
+}
+
+func TestGetRealtimeShowsWhatCameBackWhenNamesDontMatch(t *testing.T) {
+	f := newFakeAPI(t)
+	f.realOnlyUnknown = true
+	s := f.service(t, at("2026-11-02T12:00:00Z"))
+	out, err := s.GetRealtime(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != "ok" || len(out.Readings) != 1 || out.Readings[0].Variable != "mysteryVar" {
+		t.Errorf("out = %+v; live data must not be hidden when names differ", out)
+	}
+	if !strings.Contains(strings.Join(out.Notes, " "), "expected variable names") {
+		t.Errorf("notes = %v", out.Notes)
 	}
 }
 
