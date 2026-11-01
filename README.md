@@ -74,6 +74,18 @@ Add to `claude_desktop_config.json`:
 - **Dates.** Days and months are calendar periods in UK local time. `to` is inclusive and capped at today. Month grouping returns whole calendar months.
 - **Caching.** Finished days and months are cached for a day, the current one for five minutes, to protect the daily call allowance.
 
+## Skill: solar-savings
+
+[`skills/solar-savings`](skills/solar-savings/SKILL.md) is a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) that joins this server with [octo-mcp](https://github.com/JamesWoolfenden/octo-mcp) to answer "what do my solar panels and battery actually save?". It works out a savings range, the split between export earnings and avoided imports, payback on your outlay, and a year-on-year comparison, and it can review your battery schedule read-only.
+
+It needs **both** servers connected, and it is written for a UK Octopus Flux tariff with a FoxESS inverter. To install it, copy the folder into your skills directory:
+
+```sh
+cp -r skills/solar-savings ~/.claude/skills/
+```
+
+Then restart Claude Code and ask for a solar savings review, or type `/solar-savings`.
+
 ## Development
 
 ```sh
