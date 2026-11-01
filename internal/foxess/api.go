@@ -2,8 +2,11 @@ package foxess
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 )
 
 // Device is one inverter as listed by the API.
@@ -71,26 +74,49 @@ func (c *Client) DeviceDetail(ctx context.Context, sn string) (*DeviceDetail, er
 	return &d, nil
 }
 
-// RealQuery returns the latest readings for the named variables. Variables
-// with no data are simply absent from the result.
-func (c *Client) RealQuery(ctx context.Context, sn string, variables []string) ([]RealPoint, error) {
-	var res []struct {
-		SN    string      `json:"deviceSN"`
-		Datas []RealPoint `json:"datas"`
-	}
+// RealResult is a live-data answer, with enough about its shape to tell
+// "the inverter sent nothing" from "the answer wasn't what we expected".
+type RealResult struct {
+	Points  []RealPoint
+	Entries int      // device entries in the answer
+	Fields  []string // field names seen on those entries (never values)
+}
+
+// RealQuery returns the latest readings. Variables with no data are simply
+// absent from the result; omit variables to get every one.
+func (c *Client) RealQuery(ctx context.Context, sn string, variables []string) (*RealResult, error) {
+	var res []map[string]json.RawMessage
 	body := map[string]any{"sns": []string{sn}}
-	if len(variables) > 0 { // omitted means every variable
+	if len(variables) > 0 {
 		body["variables"] = variables
 	}
 	if err := c.do(ctx, http.MethodPost, "/op/v0/device/real/query", nil, body, &res); err != nil {
 		return nil, err
 	}
-	var out []RealPoint
-	for _, r := range res {
-		// Only this serial was requested, so don't insist the echo matches
-		// exactly (case or padding can differ).
-		out = append(out, r.Datas...)
+	out := &RealResult{Entries: len(res)}
+	seen := map[string]bool{}
+	for _, entry := range res {
+		for k := range entry {
+			if !seen[k] {
+				seen[k] = true
+				out.Fields = append(out.Fields, k)
+			}
+		}
+		// Only this serial was requested, so don't insist the echo matches.
+		raw, ok := entry["datas"]
+		if !ok {
+			raw, ok = entry["data"] // tolerate the other spelling
+		}
+		if !ok {
+			continue
+		}
+		var pts []RealPoint
+		if err := json.Unmarshal(raw, &pts); err != nil {
+			return nil, fmt.Errorf("foxess real query: unexpected readings shape: %w", err)
+		}
+		out.Points = append(out.Points, pts...)
 	}
+	sort.Strings(out.Fields)
 	return out, nil
 }
 

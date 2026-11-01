@@ -17,7 +17,7 @@ import (
 type API interface {
 	DeviceList(ctx context.Context) ([]foxess.Device, error)
 	DeviceDetail(ctx context.Context, sn string) (*foxess.DeviceDetail, error)
-	RealQuery(ctx context.Context, sn string, variables []string) ([]foxess.RealPoint, error)
+	RealQuery(ctx context.Context, sn string, variables []string) (*foxess.RealResult, error)
 	ReportQuery(ctx context.Context, sn, dimension string, year, month int, variables []string) ([]foxess.ReportSeries, error)
 }
 
@@ -218,14 +218,17 @@ func (s *Service) GetRealtime(ctx context.Context, device string) (*RealtimeOut,
 	}
 	// Ask for everything and pick out what we want: requesting variables by
 	// name returned nothing on a live account, so the names can't be trusted.
-	all, err := s.api.RealQuery(ctx, sn, nil)
+	res, err := s.api.RealQuery(ctx, sn, nil)
 	if err != nil {
 		return nil, err
 	}
+	all := res.Points
 	out := &RealtimeOut{Device: mask(sn), Readings: []ReadingOut{}, Notes: []string{}}
 	if len(all) == 0 {
 		out.Status = "no_data"
-		out.Notes = append(out.Notes, "FoxESS returned no live readings. The inverter may be offline; this is missing data, not zero output.")
+		out.Notes = append(out.Notes,
+			"FoxESS returned no live readings. The inverter may be offline; this is missing data, not zero output.",
+			fmt.Sprintf("Diagnostic: FoxESS answered with %d device entries having fields [%s].", res.Entries, strings.Join(res.Fields, ", ")))
 		return out, nil
 	}
 	want := map[string]bool{}

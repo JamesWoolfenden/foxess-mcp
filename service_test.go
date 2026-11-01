@@ -33,6 +33,9 @@ type fakeAPI struct {
 	zeroAll bool            // every report value is 0 (inverter offline)
 	// realOnlyUnknown makes live data contain only variables we don't expect.
 	realOnlyUnknown bool
+	realEmptyResult bool   // the answer is an empty list
+	realEmptyDatas  bool   // the device entry has no readings
+	realDataKey     string // field name holding the readings (default "datas")
 	realBody        map[string]any
 	mu              sync.Mutex
 	reportReq       []map[string]any
@@ -107,8 +110,19 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 		if f.realOnlyUnknown {
 			datas = []map[string]any{{"variable": "mysteryVar", "unit": "kW", "name": "Mystery", "value": 7, "time": "2026-11-02 12:00:00 GMT+0000"}}
 		}
+		if f.realEmptyResult {
+			reply(w, []map[string]any{})
+			return
+		}
+		if f.realEmptyDatas {
+			datas = []map[string]any{}
+		}
+		key := "datas"
+		if f.realDataKey != "" {
+			key = f.realDataKey
+		}
 		// The real API echoes the serial in whatever case it likes.
-		reply(w, []map[string]any{{"deviceSN": strings.ToLower(sns[0].(string)), "datas": datas}})
+		reply(w, []map[string]any{{"deviceSN": strings.ToLower(sns[0].(string)), key: datas}})
 	case "/op/v0/device/report/query":
 		f.mu.Lock()
 		f.reportReq = append(f.reportReq, body)
@@ -368,6 +382,39 @@ func TestGetRealtime(t *testing.T) {
 	}
 	if _, asked := f.realBody["variables"]; asked {
 		t.Errorf("request named variables %v; it must ask for all of them", f.realBody["variables"])
+	}
+}
+
+func TestGetRealtimeNoDataSaysWhatFoxESSAnsweredWith(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*fakeAPI)
+		want string
+	}{
+		{"empty answer", func(f *fakeAPI) { f.realEmptyResult = true }, "0 device entries having fields []"},
+		{"entry without readings", func(f *fakeAPI) { f.realEmptyDatas = true }, "1 device entries having fields [datas, deviceSN]"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeAPI(t)
+			tc.set(f)
+			out, err := f.service(t, at("2026-11-02T12:00:00Z")).GetRealtime(context.Background(), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Status != "no_data" || !strings.Contains(strings.Join(out.Notes, " "), tc.want) {
+				t.Errorf("status = %s, notes = %v; want no_data mentioning %q", out.Status, out.Notes, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetRealtimeAcceptsDataSpelling(t *testing.T) {
+	f := newFakeAPI(t)
+	f.realDataKey = "data"
+	out, err := f.service(t, at("2026-11-02T12:00:00Z")).GetRealtime(context.Background(), "")
+	if err != nil || out.Status != "ok" || len(out.Readings) != 2 {
+		t.Errorf("out = %+v, err = %v", out, err)
 	}
 }
 
