@@ -23,8 +23,10 @@ In FoxESS Cloud open your profile, then **API Management**, and generate a key. 
 ### 2. Build
 
 ```sh
-go build -o foxess-mcp.exe .
+make build   # or: go build -o foxess-mcp.exe .
 ```
+
+`make build` writes `foxess-mcp` (`foxess-mcp.exe` on Windows) into the repo folder. Use the full path to that file when registering it with Claude below. `make install` instead puts it in `$(go env GOPATH)/bin` (often on your `PATH`), so the registration can use plain `foxess-mcp`. After rebuilding, reconnect the server with `/mcp` in Claude Code so it picks up the new binary.
 
 ### 3. Configure
 
@@ -90,7 +92,7 @@ Then restart Claude Code and ask for a solar savings review, or type `/solar-sav
 ## Development
 
 ```sh
-go test ./...
+make test   # or: go test ./...
 ```
 
 Tests never touch the network. The API is faked with an in-process `httptest` server that checks the token and signature on every request, and all identifiers in the fixtures are fake.
@@ -102,7 +104,7 @@ The request signature is `md5(path + "\r\n" + token + "\r\n" + timestamp)`, wher
 Your API key must never be committed. After cloning, install the [pre-commit](https://pre-commit.com) hooks, which run gitleaks, a private-key check, `go vet` and `go test` before every commit:
 
 ```sh
-pre-commit install
+make install-hooks   # or: pre-commit install
 ```
 
 The same gitleaks scan runs in CI on every push and pull request (`.github/workflows/gitleaks.yml`). `.env` files, keys and local MCP config are in `.gitignore`.
