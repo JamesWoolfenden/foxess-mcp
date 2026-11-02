@@ -43,7 +43,7 @@ Check `readings_found` against `readings_expected` for each side. **If either is
 
 Two figures for household load disagree by about 7%:
 - The API's `load_kwh` is the lower one.
-- The FoxESS dashboard Reports page (grid import plus energy from solar and battery) is the higher one, and sits close to the energy balance: `import + pv + discharge - export - charge`.
+- The FoxESS dashboard Reports page shows a higher figure (grid import plus energy from solar and battery). The API cannot read it, so use the energy balance instead, which lands close to it: `import + pv + discharge - export - charge`.
 
 Run the estimate with **both** and report the range. Don't pick one silently.
 

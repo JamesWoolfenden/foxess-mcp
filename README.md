@@ -73,6 +73,7 @@ Add to `claude_desktop_config.json`:
 - **Derived fields.** `pv_self_consumed_kwh` is solar minus export, treating all export as solar, and is left out if that would be negative. `self_sufficiency_pct` is the share of load not bought from the grid.
 - **Dates.** Days and months are calendar periods in UK local time. `to` is inclusive and capped at today. Month grouping returns whole calendar months.
 - **Caching.** Finished days and months are cached for a day, the current one for five minutes, to protect the daily call allowance.
+- **Live readings.** `get_realtime` returns `no_data` on some inverters (the H1-3.7-E-G2 tested here answers with an empty list). The report tools are unaffected, so use `get_energy_report` for anything historical.
 
 ## Skill: solar-savings
 
@@ -105,3 +106,7 @@ pre-commit install
 ```
 
 The same gitleaks scan runs in CI on every push and pull request (`.github/workflows/gitleaks.yml`). `.env` files, keys and local MCP config are in `.gitignore`.
+
+## Licence
+
+[MIT](LICENSE)
